@@ -1,146 +1,171 @@
-install.packages("sandwich")
 # Load necessary libraries
-library(tidyverse)  # For data manipulation
-library(lmtest)     # For Breusch-Pagan and White tests
-library(sandwich)   # For robust standard errors (if needed)
-library(stats)      # For basic statistical functions
+library(readr)         # for reading data files
+library(lubridate)     # for handling dates
+library(dplyr)         # for data manINDPROulation
+library(ggplot2)       # for plotting
+library(lmtest)        # for tests (Breusch-Pagan, Durbin-Watson, BG test)
+library(sandwich)      # for robust standard errors
+library(nlme)          # for gls (ML estimation with variance functions)
 
-# Read the data
+#-----------------------------
+# Read and prepare the data
+#-----------------------------
+# Read the CSV file (adjust the path and date format if needed)
 data <- read.csv("~/uni/year2/Econometrics 2/USindustrialProduction.csv", stringsAsFactors = FALSE)
+data$Date <- as.Date(data$date, format = "%m/%d/%Y")  # adjust the date format as needed
 
-# Convert date to "day month year" format (assuming input is still MM/DD/YYYY)
-# First, parse the original MM/DD/YYYY format
-data$date <- as.Date(data$date, format = "%m/%d/%Y")
+# Create a time trend (assuming the data are ordered by date)
+data <- data %>% arrange(Date)
+data$Trend <- 1:nrow(data)
 
-# Then, reformat to "DD Month YYYY" (e.g., "01 January 1959")
-data$date_formatted <- format(data$date, "%d %B %Y")
+# Create a month variable (for seasonal dummies)
+data$Month <- factor(month(data$Date))
 
-# Create a time trend variable (i = 1, 2, ..., n)
-data$trend <- 1:nrow(data)
+# Create the log of industrial production (for the log-linear model)
+data$logINDPRO <- log(data$INDPRO)
 
-# (a) Linear trend model: y_i = alpha + beta * i + epsilon_i
-model_a <- lm(INDPRO ~ trend, data = data)
-summary_a <- summary(model_a)
-beta_a <- coef(model_a)["trend"]
-t_stat_a <- summary_a$coefficients["trend", "t value"]
-cat("Question (a):\n")
-cat("Beta (trend coefficient):", beta_a, "\n")
-cat("t-statistic:", t_stat_a, "\n")
-# Interpretation: Beta represents the average monthly change in industrial production.
+#-----------------------------
+# (a) Linear Trend Model
+#-----------------------------
+# Model: INDPRO = α + β*Trend + ε
+model_a <- lm(INDPRO ~ Trend, data = data)
+summary(model_a)
 
-# (b) Seasonal dummies model (no trend)
-data$month <- format(data$date, "%m")  # Extract month (still numeric for dummies)
-model_b <- lm(INDPRO ~ factor(month), data = data)
-r_squared_b <- summary(model_b)$r.squared
-cat("\nQuestion (b):\n")
-cat("R-squared:", r_squared_b, "\n")
-# Check if data is seasonally adjusted
-seasonal_variation <- anova(model_b)$"Pr(>F)"[1] < 0.05
-cat("Was data seasonally adjusted? ", ifelse(!seasonal_variation, "Likely yes", "Likely no"), 
-    " (based on weak seasonal effects if p-value > 0.05).\n")
+# Extract β and its t-statistic for Trend:
+beta_a <- coef(summary(model_a))["Trend", "Estimate"]
+t_a <- coef(summary(model_a))["Trend", "t value"]
+cat("Part (a): β =", beta_a, "with t-statistic =", t_a, "\n")
+# Interpretation: β represents the average change in industrial production per time period.
 
-# (c) Linear trend model with log of industrial production
-data$log_INDPRO <- log(data$INDPRO)
-model_c <- lm(log_INDPRO ~ trend, data = data)
-summary_c <- summary(model_c)
-beta_c <- coef(model_c)["trend"]
-t_stat_c <- summary_c$coefficients["trend", "t value"]
-cat("\nQuestion (c):\n")
-cat("Beta (trend coefficient):", beta_c, "\n")
-cat("t-statistic:", t_stat_c, "\n")
-# Interpretation: Beta is the approximate monthly percentage change in industrial production.
+#-----------------------------
+# (b) Seasonal dummies without trend
+#-----------------------------
+# Model: INDPRO = α + seasonal dummies + ε
+model_b <- lm(INDPRO ~ Month, data = data)
+summary(model_b)
 
-# (d) Model preference (linear vs log-linear)
-cat("\nQuestion (d):\n")
-cat("Preference: Compare R^2 and residuals. Log-linear often better for trending data.\n")
-cat("Linear R^2:", summary_a$r.squared, "vs Log-linear R^2:", summary_c$r.squared, "\n")
-cat("Use diagnostic plots (e.g., qqnorm) to confirm. Log-linear typically preferred for economic time series.\n")
+# Report R-squared:
+R2_b <- summary(model_b)$r.squared
+cat("Part (b): R-squared =", R2_b, "\n")
+# Discussion: If the seasonal dummies are highly significant and R² is high,
+# the data may not have been seasonally adjusted. (You would elaborate in your answer.)
 
-# Generate QQ plots for both models
-par(mfrow = c(1, 2))  # Set up a 1x2 plotting grid
-qqnorm(residuals(model_a), main = "QQ Plot: Linear Model (INDPRO ~ trend)")
-qqline(residuals(model_a), col = "red")
-qqnorm(residuals(model_c), main = "QQ Plot: Log-Linear Model (log_INDPRO ~ trend)")
-qqline(residuals(model_c), col = "red")
-par(mfrow = c(1, 1))  # Reset plotting grid
-cat("QQ Plot Interpretation: Check if points follow the red line. Closer alignment suggests better normality of residuals.\n")
+#-----------------------------
+# (c) Linear Trend on Log(INDPRO)
+#-----------------------------
+# Model: log(INDPRO) = α + β*Trend + ε
+model_c <- lm(logINDPRO ~ Trend, data = data)
+summary(model_c)
 
+# Extract β and its t-statistic:
+beta_c <- coef(summary(model_c))["Trend", "Estimate"]
+t_c <- coef(summary(model_c))["Trend", "t value"]
+cat("Part (c): β =", beta_c, "with t-statistic =", t_c, "\n")
+# Interpretation: Here, β approximates the continuous (percentage) growth rate per period.
 
-# First differences of log_INDPRO
-data$diff_log_INDPRO <- c(NA, diff(data$log_INDPRO))
+#-----------------------------
+# (d) Model Preference
+#-----------------------------
+# Compare the fits (for example, based on R² and residual plots) of the linear (a) versus log-linear (c) model.
+# Write up a discussion in your report – e.g., if the log-linear model better captures proportional growth,
+# you may prefer it over the linear model.
 
-# (e) Log-linear model with trend and recession indicator
-model_e <- lm(log_INDPRO ~ trend + RECESSION, data = data)
-summary_e <- summary(model_e)
-beta_trend_e <- coef(model_e)["trend"]
-t_stat_trend_e <- summary_e$coefficients["trend", "t value"]
-beta_recession_e <- coef(model_e)["RECESSION"]
-t_stat_recession_e <- summary_e$coefficients["RECESSION", "t value"]
-cat("\nQuestion (e):\n")
-cat("Trend coefficient:", beta_trend_e, "t-statistic:", t_stat_trend_e, "\n")
-cat("Recession coefficient:", beta_recession_e, "t-statistic:", t_stat_recession_e, "\n")
+# For subsequent analysis we continue with the log-linear model.
 
-# (f) Test for heteroskedasticity
+#-----------------------------
+# (e) Regression with Trend and Recession Indicator
+#-----------------------------
+# Model: log(INDPRO) = α + β1*Trend + β2*RECESSION + ε
+model_e <- lm(logINDPRO ~ Trend + RECESSION, data = data)
+summary(model_e)
+# Report the coefficients and t-statistics for Trend and RECESSION.
+
+#-----------------------------
+# (f) Heteroskedasticity Tests
+#-----------------------------
+# Breusch-Pagan Test:
 bp_test <- bptest(model_e)
-white_test <- bptest(model_e, ~ fitted(model_e) + I(fitted(model_e)^2))
-cat("\nQuestion (f):\n")
-cat("Breusch-Pagan test statistic:", bp_test$statistic, "p-value:", bp_test$p.value, "\n")
-cat("White test statistic:", white_test$statistic, "p-value:", white_test$p.value, "\n")
+cat("Part (f) Breusch-Pagan Test:\n")
+print(bp_test)
 
-# (g) ML estimation with heteroskedasticity: sigma^2 = exp(gamma1 + gamma2 * recession)
-loglik <- function(par, y, X, recession) {
-  alpha <- par[1]
-  beta <- par[2]
-  gamma1 <- par[3]
-  gamma2 <- par[4]
-  mu <- X %*% c(alpha, beta)
-  sigma2 <- exp(gamma1 + gamma2 * recession)
-  -sum(dnorm(y, mean = mu, sd = sqrt(sigma2), log = TRUE))
-}
-X <- model.matrix(~ trend, data = data)
-init_par <- c(coef(model_e)[1], coef(model_e)[2], 0, 0)  # Initial values
-ml_fit <- optim(init_par, loglik, y = data$log_INDPRO, X = X, recession = data$RECESSION, 
-                method = "BFGS", hessian = TRUE)
-gamma2 <- ml_fit$par[4]
-se_gamma2 <- sqrt(diag(solve(ml_fit$hessian)))[4]
-z_stat_gamma2 <- gamma2 / se_gamma2
-cat("\nQuestion (g):\n")
-cat("Gamma2:", gamma2, "z-statistic:", z_stat_gamma2, "\n")
-cat("Significant if |z| > 1.96 (5% level).\n")
+# White Test: Using a variant of BP that includes squared fitted values:
+white_test <- bptest(model_e, varformula = ~ fitted(model_e) + I(fitted(model_e)^2))
+cat("Part (f) White Test:\n")
+print(white_test)
 
-# (h) Test for serial correlation
-acf_resid <- acf(residuals(model_e), main = "ACF of Residuals")
-lag_length <- max(which(abs(acf_resid$acf[-1]) > 2/sqrt(nrow(data))))  # Significant lags
-dw_test <- dwtest(model_e)
-cat("\nQuestion (h):\n")
-cat("Lag length from ACF:", lag_length, "\n")
-cat("Durbin-Watson test statistic:", dw_test$statistic, "p-value:", dw_test$p.value, "\n")
-cat("Motivation: DW test checks AR(1) serial correlation, suitable for time series.\n")
+#-----------------------------
+# (g) ML Estimation with Variance Model
+#-----------------------------
+# We assume that the variance is modeled as σi^2 = exp(γ1 + γ2*RECESSION).
+# One way is to use the gls() function from nlme with a variance function.
+model_g <- gls(logINDPRO ~ Trend, data = data, weights = varExp(form = ~ RECESSION))
+summary(model_g)
+# In the summary, the parameter associated with the variance function (often labeled as "delta" or similar)
+# can be interpreted. γ2 (or its equivalent) and its z-statistic can be extracted from the output.
+# (Interpret the significance of this parameter in your report.)
 
-# (i) Add lagged dependent variable
-data$lag_log_INDPRO <- lag(data$log_INDPRO)
-model_i <- lm(log_INDPRO ~ trend + RECESSION + lag_log_INDPRO, data = data)
-summary_i <- summary(model_i)
-coef_lag <- coef(model_i)["lag_log_INDPRO"]
-t_stat_lag <- summary_i$coefficients["lag_log_INDPRO", "t value"]
-cat("\nQuestion (i):\n")
-cat("Lagged dependent variable coefficient:", coef_lag, "t-statistic:", t_stat_lag, "\n")
-cat("Lagged trend not added: Perfect collinearity with trend (trend_t = trend_{t-1} + 1).\n")
+#-----------------------------
+# (h) Testing for Serial Correlation
+#-----------------------------
+# Plot the autocorrelation function (ACF) of the residuals from model (e):
+acf(resid(model_e), main = "ACF of Residuals from Model (e)")
 
-# (j) Cochrane-Orcutt procedure
-resid_e <- residuals(model_e)
-ar1_model <- lm(resid_e[-1] ~ resid_e[-length(resid_e)])
-rho <- coef(ar1_model)[2]
-data$y_transformed <- data$log_INDPRO - rho * lag(data$log_INDPRO)
-data$trend_transformed <- data$trend - rho * lag(data$trend)
-data$recession_transformed <- data$RECESSION - rho * lag(data$RECESSION)
-model_j <- lm(y_transformed ~ trend_transformed + recession_transformed, data = data[-1, ])
-summary_j <- summary(model_j)
-beta_j <- coef(model_j)["trend_transformed"]
-t_stat_j <- summary_j$coefficients["trend_transformed", "t value"]
-cat("\nQuestion (j):\n")
-cat("Rho (AR(1) coefficient):", rho, "\n")
-cat("New Beta (trend):", beta_j, "t-statistic:", t_stat_j, "\n")
+# Durbin-Watson Test:
+dw <- dwtest(model_e)
+cat("Part (h) Durbin-Watson Test:\n")
+print(dw)
 
-# Optional: View the first few rows with the new date format
-head(data[, c("date_formatted", "INDPRO", "RECESSION")])
+# Alternatively, use the Breusch-Godfrey test:
+bg <- bgtest(model_e, order = 4)
+cat("Part (h) Breusch-Godfrey Test:\n")
+print(bg)
+# In your answer, describe that these tests check for the presence of serial correlation in the residuals.
+
+#-----------------------------
+# (i) Including Lagged Dependent Variable
+#-----------------------------
+# Create a lagged variable for log(INDPRO). Note: The first observation will be NA.
+data$lag_logINDPRO <- lag(data$logINDPRO, 1)
+
+# Run the regression including the lagged log(INDPRO):
+model_i <- lm(logINDPRO ~ Trend + RECESSION + lag_logINDPRO, data = data)
+summary(model_i)
+
+# Extract the coefficient and t-statistic for the lagged dependent variable:
+coef_lag <- coef(summary(model_i))["lag_logINDPRO", c("Estimate", "t value")]
+cat("Part (i): Lagged log(INDPRO) coefficient =", coef_lag["Estimate"],
+    "with t-statistic =", coef_lag["t value"], "\n")
+# Explanation: The lagged trend is not added because Trend is a deterministic variable (a time index)
+# and including its lag would lead to perfect collinearity or redundant information.
+
+#-----------------------------
+# (j) Cochrane-Orcutt Procedure
+#-----------------------------
+# We start with the model from part (e) (logINDPRO ~ Trend + RECESSION) and then apply Cochrane-Orcutt.
+model_e <- lm(logINDPRO ~ Trend + RECESSION, data = data)
+summary(model_e)
+
+# Extract residuals
+res <- residuals(model_e)
+
+# Estimate the autocorrelation coefficient (rho)
+rho_est <- cor(res[-1], res[-length(res)])
+cat("Estimated rho =", rho_est, "\n")
+
+# Create a dataset for the transformed model (dropping the first observation)
+data_co <- data[-1, ]
+# Note: use the corresponding lagged values from the original data
+data_co$logINDPRO_lag <- data$logINDPRO[-nrow(data)]
+data_co$Trend_lag <- data$Trend[-nrow(data)]
+data_co$RECESSION_lag <- data$RECESSION[-nrow(data)]
+
+# Transform variables: subtract rho * lagged value from the current value
+data_co$y_star <- data_co$logINDPRO - rho_est * data$logINDPRO[-nrow(data)]
+data_co$Trend_star <- data_co$Trend - rho_est * data$Trend[-nrow(data)]
+data_co$RECESSION_star <- data_co$RECESSION - rho_est * data$RECESSION[-nrow(data)]
+
+# Re-estimate the model using the transformed data
+model_co <- lm(y_star ~ Trend_star + RECESSION_star, data = data_co)
+summary(model_co)
+# The output will report the estimated autocorrelation parameter (ρ) as well as the adjusted estimates for β.
+# In your report, extract γ (i.e. ρ) and the new β estimates and their t-statistics.
